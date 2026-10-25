@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>ペンギンシューティングDX</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{
+margin:0;
+padding:0;
+width:100%;
+height:100%;
+overflow:hidden;
+font-family:sans-serif;
+background:#0b1f3a;
+color:#fff;
+touch-action:none;
+}
+.screen{
+display:none;
+width:100%;
+height:100%;
+padding:16px;
+}
+.active{
+display:flex;
+flex-direction:column;
+align-items:center;
+justify-content:center;
+}
+h1{
+margin:10px 0;
+text-align:center;
+}
+p{
+text-align:center;
+line-height:1.5;
+}
+button{
+border:none;
+border-radius:14px;
+padding:16px 24px;
+font-size:20px;
+font-weight:bold;
+background:#ffcf33;
+color:#000;
+min-width:180px;
+}
+#gameScreen{
+padding:0;
+background:#133b6c;
+}
+#hud{
+display:flex;
+justify-content:space-between;
+padding:8px;
+font-size:18px;
+font-weight:bold;
+background:#0b1f3a;
+}
+#gameArea{
+position:relative;
+flex:1;
+width:100%;
+overflow:hidden;
+background:linear-gradient(#6dc9ff,#dff7ff);
+touch-action:none;
+}
+#player{
+position:absolute;
+font-size:48px;
+left:50%;
+bottom:20px;
+transform:translateX(-50%);
+user-select:none;
+}
+.enemy,.bullet,.specialBullet,.item,.stormFx{
+position:absolute;
+user-select:none;
+}
+.enemy{font-size:38px;}
+.bullet{font-size:22px;}
+.specialBullet{font-size:44px;}
+.item{font-size:30px;}
+
+#specialBtn{
+position:absolute;
+right:10px;
+bottom:10px;
+width:90px;
+height:90px;
+border-radius:50%;
+background:#ff4d4d;
+color:#fff;
+font-size:14px;
+font-weight:bold;
+}
+
+#stormBtn{
+position:absolute;
+left:10px;
+bottom:10px;
+width:90px;
+height:90px;
+border-radius:50%;
+background:#4da6ff;
+color:#fff;
+font-size:13px;
+font-weight:bold;
+}
+
+#rank{
+font-size:42px;
+color:#ffd700;
+margin:10px;
+}
+
+.stormFx{
+left:0;
+top:0;
+width:100%;
+height:100%;
+pointer-events:none;
+font-size:42px;
+display:flex;
+flex-wrap:wrap;
+justify-content:center;
+align-content:center;
+background:rgba(180,230,255,.35);
+animation:fade .8s linear forwards;
+}
+
+@keyframes fade{
+from{opacity:1;}
+to{opacity:0;}
+}
+</style>
+</head>
+<body>
+
+<div id="startScreen" class="screen active">
+<h1>🐧 ペンギンシューティングDX</h1>
+<p>
+ペンギンを動かして敵を撃とう！<br>
+⭐を取るとスペシャル攻撃獲得！<br>
+❄️氷の嵐ゲージをためると全体攻撃！<br>
+60秒生き残って高得点を目指そう！
+</p>
+<button id="startBtn">スタート</button>
+</div>
+
+<div id="gameScreen" class="screen">
+<div id="hud">
+<div>スコア: <span id="score">0</span></div>
+<div>時間: <span id="time">60</span></div>
+<div>嵐: <span id="stormGauge">0</span>%</div>
+</div>
+
+<div id="gameArea">
+<div id="player">🐧</div>
+
+<button id="stormBtn">
+氷の嵐<br>
+READY
+</button>
+
+<button id="specialBtn">
+SPECIAL<br>
+<span id="specialCount">0</span>
+</button>
+</div>
+</div>
+
+<div id="resultScreen" class="screen">
+<h1>結果発表</h1>
+<div style="font-size:32px;">
+スコア: <span id="finalScore">0</span>
+</div>
+<div id="rank">C</div>
+<button id="restartBtn">もう一度遊ぶ</button>
+</div>
+
+<script>
+const startScreen=document.getElementById("startScreen");
+const gameScreen=document.getElementById("gameScreen");
+const resultScreen=document.getElementById("resultScreen");
+const gameArea=document.getElementById("gameArea");
+const player=document.getElementById("player");
+
+let score=0;
+let timeLeft=60;
+let special=0;
+let stormGauge=0;
+
+let gameRunning=false;
+let areaW=0;
+let areaH=0;
+let playerX=0;
+
+let enemies=[];
+let bullets=[];
+let specials=[];
+let items=[];
+
+let spawnTimer;
+let itemTimer;
+let countdown;
+let loopId;
+
+function showScreen(screen){
+[startScreen,gameScreen,resultScreen].forEach(s=>s.classList.remove("active"));
+screen.classList.add("active");
+}
+
+function startGame(){
+
+score=0;
+timeLeft=60;
+special=0;
+stormGauge=0;
+
+document.getElementById("score").textContent=score;
+document.getElementById("time").textContent=timeLeft;
+document.getElementById("specialCount").textContent=special;
+document.getElementById("stormGauge").textContent=stormGauge;
+
+gameArea.querySelectorAll(".enemy,.bullet,.specialBullet,.item,.stormFx").forEach(e=>e.remove());
+
+enemies=[];
+bullets=[];
+specials=[];
+items=[];
+
+showScreen(gameScreen);
+
+setTimeout(()=>{
+areaW=gameArea.clientWidth;
+areaH=gameArea.clientHeight;
+playerX=areaW/2;
+updatePlayer();
+},50);
+
+gameRunning=true;
+
+spawnTimer=setInterval(spawnEnemy,420);
+itemTimer=setInterval(spawnItem,4200);
+
+countdown=setInterval(()=>{
+timeLeft--;
+document.getElementById("time").textContent=timeLeft;
+
+if(timeLeft<=0){
+endGame();
+}
+},1000);
+
+loop();
+}
+
+function endGame(){
+gameRunning=false;
+
+clearInterval(spawnTimer);
+clearInterval(itemTimer);
+clearInterval(countdown);
+cancelAnimationFrame(loopId);
+
+document.getElementById("finalScore").textContent=score;
+
+let rank="C";
+
+if(score>=300) rank="S";
+else if(score>=220) rank="A";
+else if(score>=140) rank="B";
+
+document.getElementById("rank").textContent=rank;
+
+showScreen(resultScreen);
+}
+
+function updatePlayer(){
+player.style.left=playerX+"px";
+}
+
+function shoot(){
+if(!gameRunning) return;
+
+const b=document.createElement("div");
+b.className="bullet";
+b.textContent="🧊";
+b.x=playerX;
+b.y=areaH-90;
+
+b.style.left=b.x+"px";
+b.style.top=b.y+"px";
+
+gameArea.appendChild(b);
+bullets.push(b);
+}
+
+function specialAttack(){
+
+if(!gameRunning || special<=0) return;
+
+special--;
+document.getElementById("specialCount").textContent=special;
+
+const s=document.createElement("div");
+s.className="specialBullet";
+s.textContent="❄️";
+s.x=playerX-20;
+s.y=areaH-120;
+
+s.style.left=s.x+"px";
+s.style.top=s.y+"px";
+
+gameArea.appendChild(s);
+specials.push(s);
+}
+
+function iceStorm(){
+
+if(!gameRunning) return;
+if(stormGauge<100) return;
+
+stormGauge=0;
+document.getElementById("stormGauge").textContent=stormGauge;
+
+let defeated=0;
+
+enemies.forEach(e=>{
+if(e.parentNode){
+e.remove();
+defeated++;
+}
+});
+
+enemies=[];
+
+score+=defeated*20;
+document.getElementById("score").textContent=score;
+
+const fx=document.createElement("div");
+fx.className="stormFx";
+fx.innerHTML="❄️❄️❄️❄️❄️❄️❄️❄️";
+gameArea.appendChild(fx);
+
+setTimeout(()=>{
+if(fx.parentNode) fx.remove();
+},800);
+}
+
+function spawnEnemy(){
+
+if(!gameRunning) return;
+
+const e=document.createElement("div");
+e.className="enemy";
+
+e.textContent=Math.random()<0.5?"🐟":"🦑";
+
+e.x=Math.random()*(areaW-40);
+e.y=-40;
+e.speed=4+Math.random()*4+(60-timeLeft)*0.06;
+
+e.style.left=e.x+"px";
+e.style.top=e.y+"px";
+
+gameArea.appendChild(e);
+enemies.push(e);
+}
+
+function spawnItem(){
+
+if(!gameRunning) return;
+
+const i=document.createElement("div");
+i.className="item";
+i.textContent="⭐";
+
+i.x=Math.random()*(areaW-40);
+i.y=-30;
+i.speed=3;
+
+i.style.left=i.x+"px";
+i.style.top=i.y+"px";
+
+gameArea.appendChild(i);
+items.push(i);
+}
+
+function hit(a,b){
+return !(
+a.x+30<b.x ||
+a.x>b.x+30 ||
+a.y+30<b.y ||
+a.y>b.y+30
+);
+}
+
+function addStorm(value){
+stormGauge=Math.min(100,stormGauge+value);
+document.getElementById("stormGauge").textContent=stormGauge;
+}
+
+function loop(){
+
+if(!gameRunning) return;
+
+bullets.forEach((b,bi)=>{
+
+b.y-=10;
+b.style.top=b.y+"px";
+
+if(b.y<-30){
+b.remove();
+bullets.splice(bi,1);
+}
+});
+
+specials.forEach((s,si)=>{
+
+s.y-=15;
+s.style.top=s.y+"px";
+
+if(s.y<-80){
+s.remove();
+specials.splice(si,1);
+}
+});
+
+enemies.forEach((e,ei)=>{
+
+e.y+=e.speed;
+e.style.top=e.y+"px";
+
+if(e.y>areaH){
+e.remove();
+enemies.splice(ei,1);
+
+score=Math.max(0,score-3);
+document.getElementById("score").textContent=score;
+}
+
+const playerBox={
+x:playerX-20,
+y:areaH-80
+};
+
+if(hit({x:e.x,y:e.y},playerBox)){
+endGame();
+}
+
+bullets.forEach((b,bi)=>{
+
+if(hit({x:e.x,y:e.y},{x:b.x,y:b.y})){
+
+if(e.parentNode) e.remove();
+if(b.parentNode) b.remove();
+
+enemies.splice(ei,1);
+bullets.splice(bi,1);
+
+score+=10;
+addStorm(5);
+
+document.getElementById("score").textContent=score;
+}
+});
+
+specials.forEach((s)=>{
+
+if(hit({x:e.x,y:e.y},{x:s.x,y:s.y})){
+
+if(e.parentNode){
+e.remove();
+score+=15;
+addStorm(7);
+document.getElementById("score").textContent=score;
+}
+}
+});
+});
+
+items.forEach((i,ii)=>{
+
+i.y+=i.speed;
+i.style.top=i.y+"px";
+
+if(hit({x:i.x,y:i.y},{x:playerX-20,y:areaH-80})){
+
+special++;
+document.getElementById("specialCount").textContent=special;
+
+i.remove();
+items.splice(ii,1);
+}
+else if(i.y>areaH){
+i.remove();
+items.splice(ii,1);
+}
+});
+
+loopId=requestAnimationFrame(loop);
+}
+
+function movePlayer(clientX){
+
+const rect=gameArea.getBoundingClientRect();
+
+playerX=Math.max(
+25,
+Math.min(rect.width-25,clientX-rect.left)
+);
+
+updatePlayer();
+}
+
+gameArea.addEventListener("pointerdown",e=>{
+movePlayer(e.clientX);
+shoot();
+});
+
+gameArea.addEventListener("pointermove",e=>{
+if(e.buttons || e.pointerType==="touch"){
+movePlayer(e.clientX);
+}
+});
+
+document.getElementById("specialBtn").addEventListener("click",specialAttack);
+document.getElementById("stormBtn").addEventListener("click",iceStorm);
+
+document.getElementById("startBtn").addEventListener("click",startGame);
+document.getElementById("restartBtn").addEventListener("click",startGame);
+
+window.addEventListener("resize",()=>{
+areaW=gameArea.clientWidth;
+areaH=gameArea.clientHeight;
+});
+</script>
+
+</body>
+</html>
